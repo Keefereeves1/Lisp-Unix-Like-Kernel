@@ -94,6 +94,9 @@ out how im going to compile the shell and what format yet, but everything else t
 I have more written documentation on this. please see the file LispUnixKernel.docx, as that is comprehensive in the plan to go about this
 
 Thanks!
+
+(side note, i have changed the custom alien functions in kernel.lisp to clli functions, but i have yet to test them)
+
 Keefe
 CEO of Data-Ject Solutions
 
