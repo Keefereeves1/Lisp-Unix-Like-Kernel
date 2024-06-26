@@ -1,11 +1,15 @@
+;; kernel.lisp
+
 (require :split-sequence)
 (require :cffi)
 
-(load "/home/keefe/Desktop/lisp_unix_kernel/lisp_unix/include/packages.lisp")
+(load "lisp_unix_kernel/lisp_unix/include/packages.lisp")
 
 (format t "Packages loaded.~%")
 
 (in-package :lisp-unix.kernel)
+
+(format t "In package lisp-unix.kernel~%")
 
 ;; Basic constants and utility functions
 
@@ -14,29 +18,34 @@
 (defconstant +vga-buffer+ #xB8000)
 
 (defun memset (addr value count)
-  (loop for i below count
-        do (cffi:foreign-funcall "memset" :void (cffi:foreign-alloc :pointer addr) value count)))
+  (loop for i from 0 below count
+        do (setf (sb-sys:sap-ref-8 (sb-sys:int-sap addr) i) value)))
 
 (defun memcpy (dest src count)
-  (loop for i below count
-        do (cffi:foreign-funcall "memcpy" :void (cffi:foreign-alloc :pointer dest) (cffi:foreign-alloc :pointer src) count)))
+  (loop for i from 0 below count
+        do (setf (sb-sys:sap-ref-8 (sb-sys:int-sap dest) i)
+                 (sb-sys:sap-ref-8 (sb-sys:int-sap src) i))))
 
-(defun inb (port)
-  (cffi:foreign-funcall "inb" :uint8 port))
+;; cffi definitions for inb, outb, and lidt
+(cffi:define-foreign-function ("inb" inb) :uint8
+  (port :uint16))
 
-(defun outb (port value)
-  (cffi:foreign-funcall "outb" :void port :uint8 value))
+(cffi:define-foreign-function ("outb" outb) :void
+  (port :uint16) (value :uint8))
 
-(defun lidt (descriptor)
-  (cffi:foreign-funcall "lidt" :void (cffi:foreign-alloc :pointer descriptor)))
+(cffi:define-foreign-function ("lidt" lidt) :void
+  (descriptor :pointer))
+
+(defun lidt-wrapper (descriptor)
+  (lidt (sb-sys:int-sap descriptor)))
 
 ;; Memory Management
 
 (defparameter *free-memory* (make-hash-table))
-(defparameter *memory-size* 1024)  ;; Example total memory size for the kernel
+(defparameter *memory-size* 1024)  ;; Define the total memory size for the kernel (example size)
 
 (defun initialize-memory ()
-  ;; Initialize free memory with one large block
+  ;; Initialize the free memory with one large block
   (setf (gethash 0 *free-memory*) *memory-size*))
 
 (defun find-free-block (size)
@@ -113,18 +122,50 @@
   (when *current-process*
     (let ((registers (process-registers *current-process*)))
       ;; Save general-purpose registers
-      (loop for i below 16
-            do (setf (aref registers i)
-                     (cffi:foreign-funcall "save-register" :int i))))))
+      (setf (aref registers 0) (cffi:foreign-funcall "save-register" :int :int 0))  ; EAX
+      (setf (aref registers 1) (cffi:foreign-funcall "save-register" :int :int 1))  ; EBX
+      (setf (aref registers 2) (cffi:foreign-funcall "save-register" :int :int 2))  ; ECX
+      (setf (aref registers 3) (cffi:foreign-funcall "save-register" :int :int 3))  ; EDX
+      (setf (aref registers 4) (cffi:foreign-funcall "save-register" :int :int 4))  ; ESI
+      (setf (aref registers 5) (cffi:foreign-funcall "save-register" :int :int 5))  ; EDI
+      (setf (aref registers 6) (cffi:foreign-funcall "save-register" :int :int 6))  ; EBP
+      (setf (aref registers 7) (cffi:foreign-funcall "save-register" :int :int 7))  ; ESP
+      (setf (aref registers 8) (cffi:foreign-funcall "save-register" :int :int 8))  ; EIP
+      (setf (aref registers 9) (cffi:foreign-funcall "save-register" :int :int 9))  ; EFLAGS
+      ;; Save segment registers
+      (setf (aref registers 10) (cffi:foreign-funcall "save-register" :int :int 10))  ; CS
+      (setf (aref registers 11) (cffi:foreign-funcall "save-register" :int :int 11))  ; DS
+      (setf (aref registers 12) (cffi:foreign-funcall "save-register" :int :int 12))  ; ES
+      (setf (aref registers 13) (cffi:foreign-funcall "save-register" :int :int 13))  ; FS
+      (setf (aref registers 14) (cffi:foreign-funcall "save-register" :int :int 14))  ; GS
+      (setf (aref registers 15) (cffi:foreign-funcall "save-register" :int :int 15)))))  ; SS
 
 (defun load-process-state (process)
   ;; Load the state of the given process
   (let ((registers (process-registers process)))
     ;; Load general-purpose registers
-    (loop for i below 16
-          do (setf (aref registers i)
-                   (cffi:foreign-funcall "load-register" :void :int (aref registers i)))))
-    (setf *current-process* process))
+    (cffi:foreign-funcall "load-register" :void :int 0 :int (aref registers 0))  ; EAX
+    (cffi:foreign-funcall "load-register" :void :int 1 :int (aref registers 1))  ; EBX
+    (cffi:foreign-funcall "load-register" :void :int 2 :int (aref registers 2))  ; ECX
+    (cffi:foreign-funcall "load-register" :void :int 3 :int (aref registers 3))  ; EDX
+    (cffi:foreign-funcall "load-register" :void :int 4 :int (aref registers 4))  ; ESI
+    (cffi:foreign-funcall "load-register" :void :int 5 :int (aref registers 5))  ; EDI
+    (cffi:foreign-funcall "load-register" :void :int 6 :int (aref registers 6))  ; EBP
+    (cffi:foreign-funcall "load-register" :void :int 7 :int (aref registers 7))  ; ESP
+    (cffi:foreign-funcall "load-register" :void :int 8 :int (aref registers 8))  ; EIP
+    (cffi:foreign-funcall "load-register" :void :int 9 :int (aref registers 9))  ; EFLAGS
+    ;; Load segment registers
+    (cffi:foreign-funcall "load-register" :void :int 10 :int (aref registers 10))  ; CS
+    (cffi:foreign-funcall "load-register" :void :int 11 :int (aref registers 11))  ; DS
+    (cffi:foreign-funcall "load-register" :void :int 12 :int (aref registers 12))  ; ES
+    (cffi:foreign-funcall "load-register" :void :int 13 :int (aref registers 13))  ; FS
+    (cffi:foreign-funcall "load-register" :void :int 14 :int (aref registers 14))  ; GS
+    (cffi:foreign-funcall "load-register" :void :int 15 :int (aref registers 15)))  ; SS
+  (setf *current-process* process))
+
+;; Alien function declarations for saving and loading registers
+(cffi:define-foreign-function ("save-register" save-register) :int (register :int))
+(cffi:define-foreign-function ("load-register" load-register) :void (register :int) (value :int))
 
 ;; Interrupt Handling
 
@@ -170,27 +211,42 @@
   (apply #'format t (concatenate 'string "KERNEL PANIC: " message) args)
   (abort))
 
-;; Initialize kernel components
+;; Alien function declarations
+(cffi:define-foreign-function ("outb" outb) :void (port :uint16) (value :uint8))
+(cffi:define-foreign-function ("inb" inb) :uint8 (port :uint16))
+(cffi:define-foreign-function ("lidt" lidt) :void (descriptor :pointer))
 
+;; Ensure that PTR-TO-INT is defined or correctly referenced
+(defun ptr-to-int (ptr)
+  (sb-sys:sap-int ptr))
+
+;; Ensure other functions are defined in kernel.lisp
 (defun initialize-filesystem ()
+  "Initialize filesystem."
   (format t "Initializing filesystem...~%"))
 
 (defun initialize-interrupts ()
+  "Initialize interrupts."
   (format t "Initializing interrupts...~%"))
 
 (defun initialize-memory ()
+  "Initialize memory."
   (format t "Initializing memory...~%"))
 
 (defun initialize-networking ()
+  "Initialize networking."
   (format t "Initializing networking...~%"))
 
 (defun initialize-scheduler ()
+  "Initialize scheduler."
   (format t "Initializing scheduler...~%"))
 
 (defun initialize-syscalls ()
+  "Initialize syscalls."
   (format t "Initializing syscalls...~%"))
 
 (defun initialize-vga ()
+  "Initialize VGA."
   (format t "Initializing VGA...~%"))
 
 (defun initialize-kernel ()
@@ -203,3 +259,4 @@
   (initialize-syscalls)
   (initialize-vga)
   (format t "Kernel initialization complete.~%"))
+
